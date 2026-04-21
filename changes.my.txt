@@ -1,62 +1,62 @@
-  ---                                                                                                                                                                                                                
-  src/secp256k1_fastderive_impl.h (new file — not in original)                                                                                                                                                       
-                                                                                                                                                                                                                     
-  The core of all custom functionality. Contains:                                                                                                                                                                    
-                                                                                                                                                                                                                     
-  1. secp256k1_ecmult_gen_var — variable-time fixed-base scalar multiplication (tweak * G). Identical logic to the standard secp256k1_ecmult_gen but replaces the 32-entry constant-time cmov scan with a direct     
-  table index (adds = prec_table[block][abs]), and skips projective blinding. Safe because BIP32 HMAC-derived tweaks are not secret signing keys. Gives ~35% throughput improvement over the original constant-time  
-  path.                                                                                                                                                                                                              
-  2. secp256k1_ecmult_gen_var support includes — adds #include "ecmult_gen.h" and #include "precomputed_ecmult_gen.h" to access the comb constants and precomputed table.                                            
-  3. secp256k1_serialize33_from_gej / secp256k1_serialize33_from_ge — inline helpers to serialize a Jacobian or affine point to 33-byte compressed form without a full secp256k1_ec_pubkey_serialize call.           
-  4. secp256k1_fastderive_parent_impl — struct wrapping a secp256k1_gej (parent pubkey in Jacobian coordinates), cached to avoid re-parsing for repeated child derivations.                                          
-  5. secp256k1_fast_pubkey_tweak_add_serialize33_impl — single child key: parent + tweak*G, serialized. Uses secp256k1_ecmult_gen_var.                                                                               
-  6. secp256k1_fast_pubkey_tweak_add_serialize33_from_parent_impl — same but takes a pre-cached secp256k1_fastderive_parent_impl (avoids re-loading the parent pubkey). Uses secp256k1_ecmult_gen_var.               
-  7. secp256k1_fast_pubkey_tweak_add_serialize33_from_parent_batch10_impl — batch of 10 children from a cached parent: computes 10 tweak_i * G with secp256k1_ecmult_gen_var, adds each to the parent Jacobian, then 
-  does one batched modular inversion (secp256k1_ge_set_all_gej_var) to convert all 10 results to affine simultaneously, avoiding 9 individual inversions. Serializes all 10.                                         
-                                                                                                                                                                                                                     
-  ---                                                                                                                                                                                                                
-  include/secp256k1.h (modified)                                                                                                                                                                                   
+---                                                                                                                                                                                                                
+src/secp256k1_fastderive_impl.h (new file — not in original)                                                                                                                                                       
+                                                                                                                                                                                                                   
+The core of all custom functionality. Contains:                                                                                                                                                                    
+                                                                                                                                                                                                                   
+1. secp256k1_ecmult_gen_var — variable-time fixed-base scalar multiplication (tweak * G). Identical logic to the standard secp256k1_ecmult_gen but replaces the 32-entry constant-time cmov scan with a direct     
+table index (adds = prec_table[block][abs]), and skips projective blinding. Safe because BIP32 HMAC-derived tweaks are not secret signing keys. Gives ~35% throughput improvement over the original constant-time  
+path.                                                                                                                                                                                                              
+2. secp256k1_ecmult_gen_var support includes — adds #include "ecmult_gen.h" and #include "precomputed_ecmult_gen.h" to access the comb constants and precomputed table.                                            
+3. secp256k1_serialize33_from_gej / secp256k1_serialize33_from_ge — inline helpers to serialize a Jacobian or affine point to 33-byte compressed form without a full secp256k1_ec_pubkey_serialize call.           
+4. secp256k1_fastderive_parent_impl — struct wrapping a secp256k1_gej (parent pubkey in Jacobian coordinates), cached to avoid re-parsing for repeated child derivations.                                          
+5. secp256k1_fast_pubkey_tweak_add_serialize33_impl — single child key: parent + tweak*G, serialized. Uses secp256k1_ecmult_gen_var.                                                                               
+6. secp256k1_fast_pubkey_tweak_add_serialize33_from_parent_impl — same but takes a pre-cached secp256k1_fastderive_parent_impl (avoids re-loading the parent pubkey). Uses secp256k1_ecmult_gen_var.               
+7. secp256k1_fast_pubkey_tweak_add_serialize33_from_parent_batch10_impl — batch of 10 children from a cached parent: computes 10 tweak_i * G with secp256k1_ecmult_gen_var, adds each to the parent Jacobian, then 
+does one batched modular inversion (secp256k1_ge_set_all_gej_var) to convert all 10 results to affine simultaneously, avoiding 9 individual inversions. Serializes all 10.                                         
+                                                                                                                                                                                                                   
+---                                                                                                                                                                                                                
+include/secp256k1.h (modified)                                                                                                                                                                                   
 
-  Adds public API declarations:
-  - secp256k1_fastderive_parent opaque type (128-byte aligned storage for the parent cache)
-  - secp256k1_ec_pubkey_tweak_add_serialize33() — fused tweak+serialize for a raw pubkey                                                                                                                             
-  - secp256k1_fastderive_parent_init_pubkey() — initialize parent cache from a pubkey   
-  - secp256k1_ec_pubkey_tweak_add_serialize33_from_parent() — single child from parent cache                                                                                                                         
-  - secp256k1_ec_pubkey_tweak_add_serialize33_from_parent_batch10() — batch-10 from parent cache                                                                                                                     
-                                                                                                                                                                                                                     
-  ---                                                                                                                                                                                                                
-  src/secp256k1.c (modified)                                                                                                                                                                                         
-                                                                                                                                                                                                                     
-  - Includes secp256k1_fastderive_impl.h                                                                                                                                                                           
-  - Static-asserts that sizeof(secp256k1_fastderive_parent_impl) <= SECP256K1_FASTDERIVE_PARENT_SIZE (compile-time safety check)                                                                                     
-  - Public API wrapper implementations for all four fastderive functions                                                                                                                                             
-  - Also contains a duplicate secp256k1_fast_pubkey_tweak_add_serialize33 wrapper with swapped argument order (likely an earlier iteration — may be dead code)                                                       
-                                                                                                                                                                                                                     
-  ---                                                                                                                                                                                                              
-  src/ecdsa_impl.h (modified)                                                                                                                                                                                        
+Adds public API declarations:
+- secp256k1_fastderive_parent opaque type (128-byte aligned storage for the parent cache)
+- secp256k1_ec_pubkey_tweak_add_serialize33() — fused tweak+serialize for a raw pubkey                                                                                                                             
+- secp256k1_fastderive_parent_init_pubkey() — initialize parent cache from a pubkey   
+- secp256k1_ec_pubkey_tweak_add_serialize33_from_parent() — single child from parent cache                                                                                                                         
+- secp256k1_ec_pubkey_tweak_add_serialize33_from_parent_batch10() — batch-10 from parent cache                                                                                                                     
                                                                                                                                                                                                                    
-  Minor cleanup: removes a now-unnecessary int range local variable and replaces a verbose #ifdef VERIFY block with a simple (void)secp256k1_fe_set_b32_limit(...) one-liner. No behavioral change.
-                                                                                                                                                                                                                     
-  ---
-  src/modules/ellswift/tests_impl.h (modified)                                                                                                                                                                       
-                                                                                                                                                                                                                     
-  Minor refactor in a test: replaces an if/else that assigned a hash_fn variable with a const array lookup. No behavioral change.
-                                                                                                                                                                                                                     
-  ---                                                                                                                                                                                                              
-  configure.ac (modified)                                                                                                                                                                                            
-                                                                                                                                                                                                                     
-  Adds --with-ecmult-gen-kb=32 option → COMB_BLOCKS=4, COMB_TEETH=8 (32KB table, 32 additions + 7 doublings per scalar mult). Not used by default (--with-ecmult-gen-kb=86 remains the default), but available for
-  experimentation.                                                                                                                                                                                                   
+---                                                                                                                                                                                                                
+src/secp256k1.c (modified)                                                                                                                                                                                         
                                                                                                                                                                                                                    
-  ---                                                                                                                                                                                                                
-  src/precompute_ecmult_gen.c (modified)                                                                                                                                                                           
-                                                                                                                                                                                                                     
-  Adds {4, 8} to the CONFIGS array so the precomputed table generator also emits the COMB_BLOCKS=4, COMB_TEETH=8 section. The generated src/precomputed_ecmult_gen.c now contains this section under a #elif guard;
-  it's compiled in only when --with-ecmult-gen-kb=32 is used.                                                                                                                                                        
+- Includes secp256k1_fastderive_impl.h                                                                                                                                                                           
+- Static-asserts that sizeof(secp256k1_fastderive_parent_impl) <= SECP256K1_FASTDERIVE_PARENT_SIZE (compile-time safety check)                                                                                     
+- Public API wrapper implementations for all four fastderive functions                                                                                                                                             
+- Also contains a duplicate secp256k1_fast_pubkey_tweak_add_serialize33 wrapper with swapped argument order (likely an earlier iteration — may be dead code)                                                       
                                                                                                                                                                                                                    
-  ---                                                                                                                                                                                                                
-  build.sh (new file)                                                                                                                                                                                              
-                                                                                                                                                                                                                     
-  Clean-build script: wipes all build artifacts, runs autogen.sh, auto-detects build triple, pins Apple toolchain (/usr/bin/clang, /usr/bin/ar, etc.), configures with --with-ecmult-gen-kb=86, and runs make -j.
-  Ends with a sanity check that verifies the fastderive symbols are present in the built archive.                                                                                                                    
+---                                                                                                                                                                                                              
+src/ecdsa_impl.h (modified)                                                                                                                                                                                        
+                                                                                                                                                                                                                 
+Minor cleanup: removes a now-unnecessary int range local variable and replaces a verbose #ifdef VERIFY block with a simple (void)secp256k1_fe_set_b32_limit(...) one-liner. No behavioral change.
+                                                                                                                                                                                                                   
+---
+src/modules/ellswift/tests_impl.h (modified)                                                                                                                                                                       
+                                                                                                                                                                                                                   
+Minor refactor in a test: replaces an if/else that assigned a hash_fn variable with a const array lookup. No behavioral change.
+                                                                                                                                                                                                                   
+---                                                                                                                                                                                                              
+configure.ac (modified)                                                                                                                                                                                            
+                                                                                                                                                                                                                   
+Adds --with-ecmult-gen-kb=32 option → COMB_BLOCKS=4, COMB_TEETH=8 (32KB table, 32 additions + 7 doublings per scalar mult). Not used by default (--with-ecmult-gen-kb=86 remains the default), but available for
+experimentation.                                                                                                                                                                                                   
+                                                                                                                                                                                                                 
+---                                                                                                                                                                                                                
+src/precompute_ecmult_gen.c (modified)                                                                                                                                                                           
+                                                                                                                                                                                                                   
+Adds {4, 8} to the CONFIGS array so the precomputed table generator also emits the COMB_BLOCKS=4, COMB_TEETH=8 section. The generated src/precomputed_ecmult_gen.c now contains this section under a #elif guard;
+it's compiled in only when --with-ecmult-gen-kb=32 is used.                                                                                                                                                        
+                                                                                                                                                                                                                 
+---                                                                                                                                                                                                                
+build.sh (new file)                                                                                                                                                                                              
+                                                                                                                                                                                                                   
+Clean-build script: wipes all build artifacts, runs autogen.sh, auto-detects build triple, pins Apple toolchain (/usr/bin/clang, /usr/bin/ar, etc.), configures with --with-ecmult-gen-kb=86, and runs make -j.
+Ends with a sanity check that verifies the fastderive symbols are present in the built archive.                                                                                                                    
 
