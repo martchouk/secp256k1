@@ -262,6 +262,78 @@ static int secp256k1_pubkey_load(const secp256k1_context* ctx, secp256k1_ge* ge,
     return 1;
 }
 
+
+
+
+#include "secp256k1_fastderive_impl.h"
+
+/* C89-compatible static assert */
+#define SECP_STATIC_ASSERT(cond, name) typedef char static_assert_##name[(cond) ? 1 : -1]
+
+/* after secp256k1_fastderive_parent_impl is visible in secp256k1.c */
+SECP_STATIC_ASSERT(sizeof(secp256k1_fastderive_parent_impl) <= SECP256K1_FASTDERIVE_PARENT_SIZE,
+                   fastderive_parent_size_too_small);
+
+/* Optional: alignment check (clang/gcc) */
+#if defined(__GNUC__) || defined(__clang__)
+SECP_STATIC_ASSERT(__alignof__(secp256k1_fastderive_parent) >= __alignof__(secp256k1_fastderive_parent_impl),
+                   fastderive_parent_alignment_too_small);
+#endif
+
+int secp256k1_ec_pubkey_tweak_add_serialize33(
+    const secp256k1_context* ctx,
+    const secp256k1_pubkey* pubkey,
+    const unsigned char tweak32[32],
+    unsigned char out33[33]
+) {
+    return secp256k1_fast_pubkey_tweak_add_serialize33_impl(ctx, pubkey, tweak32, out33);
+}
+
+int secp256k1_fastderive_parent_init_pubkey(
+    const secp256k1_context* ctx,
+    secp256k1_fastderive_parent* out,
+    const secp256k1_pubkey* pubkey
+) {
+    secp256k1_fastderive_parent_impl tmp;
+
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(out != NULL);
+    ARG_CHECK(pubkey != NULL);
+
+    /* Ensure storage is big enough. */
+    VERIFY_CHECK(sizeof(tmp) <= sizeof(out->data));
+
+    if (!secp256k1_fastderive_parent_init_impl(ctx, &tmp, pubkey)) return 0;
+    memcpy(out->data, &tmp, sizeof(tmp));
+    return 1;
+}
+
+int secp256k1_ec_pubkey_tweak_add_serialize33_from_parent(
+    const secp256k1_context* ctx,
+    const secp256k1_fastderive_parent* parent,
+    const unsigned char tweak32[32],
+    unsigned char out33[33]
+) {
+    secp256k1_fastderive_parent_impl tmp;
+    VERIFY_CHECK(sizeof(tmp) <= sizeof(parent->data));
+    memcpy(&tmp, parent->data, sizeof(tmp));
+    return secp256k1_fast_pubkey_tweak_add_serialize33_from_parent_impl(ctx, &tmp, tweak32, out33);
+}
+
+int secp256k1_ec_pubkey_tweak_add_serialize33_from_parent_batch10(
+    const secp256k1_context* ctx,
+    const secp256k1_fastderive_parent* parent,
+    const unsigned char tweaks10[10][32],
+    unsigned char out33_10[10][33]
+) {
+    secp256k1_fastderive_parent_impl tmp;
+    VERIFY_CHECK(sizeof(tmp) <= sizeof(parent->data));
+    memcpy(&tmp, parent->data, sizeof(tmp));
+    return secp256k1_fast_pubkey_tweak_add_serialize33_from_parent_batch10_impl(ctx, &tmp, tweaks10, out33_10);
+}
+
+
+
 static void secp256k1_pubkey_save(secp256k1_pubkey* pubkey, secp256k1_ge* ge) {
     secp256k1_ge_to_bytes(pubkey->data, ge);
 }
@@ -654,6 +726,41 @@ int secp256k1_ec_pubkey_create(const secp256k1_context* ctx, secp256k1_pubkey *p
     return ret;
 }
 
+int secp256k1_ec_pubkey_create_var(const secp256k1_context* ctx, secp256k1_pubkey *pubkey, const unsigned char *seckey) {
+    secp256k1_ge p;
+    secp256k1_gej pj;
+    secp256k1_scalar seckey_scalar;
+    int ret = 0;
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(pubkey != NULL);
+    memset(pubkey, 0, sizeof(*pubkey));
+    ARG_CHECK(secp256k1_ecmult_gen_context_is_built(&ctx->ecmult_gen_ctx));
+    ARG_CHECK(seckey != NULL);
+
+    ret = secp256k1_scalar_set_b32_seckey(&seckey_scalar, seckey);
+    secp256k1_scalar_cmov(&seckey_scalar, &secp256k1_scalar_one, !ret);
+
+    secp256k1_ecmult_gen_var(&ctx->ecmult_gen_ctx, &pj, &seckey_scalar);
+    secp256k1_ge_set_gej_var(&p, &pj);
+    secp256k1_gej_clear(&pj);
+    secp256k1_pubkey_save(pubkey, &p);
+    secp256k1_memczero(pubkey, sizeof(*pubkey), !ret);
+
+    secp256k1_scalar_clear(&seckey_scalar);
+    return ret;
+}
+
+int secp256k1_ec_pubkey_batch_create_var_xy64(const secp256k1_context* ctx,
+                                               const unsigned char* seckeys,
+                                               unsigned char* xy64s,
+                                               int n) {
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(seckeys != NULL);
+    ARG_CHECK(xy64s != NULL);
+    ARG_CHECK(secp256k1_ecmult_gen_context_is_built(&ctx->ecmult_gen_ctx));
+    return secp256k1_ec_pubkey_batch_create_var_xy64_impl(ctx, seckeys, xy64s, n);
+}
+
 int secp256k1_ec_seckey_negate(const secp256k1_context* ctx, unsigned char *seckey) {
     secp256k1_scalar sec;
     int ret = 0;
@@ -827,6 +934,15 @@ int secp256k1_tagged_sha256(const secp256k1_context* ctx, unsigned char *hash32,
     secp256k1_sha256_finalize(secp256k1_get_hash_context(ctx), &sha, hash32);
     secp256k1_sha256_clear(&sha);
     return 1;
+}
+
+int secp256k1_fast_pubkey_tweak_add_serialize33(
+    const secp256k1_context* ctx,
+    unsigned char out33[33],
+    const secp256k1_pubkey* pubkey,
+    const unsigned char tweak32[32]
+) {
+    return secp256k1_fast_pubkey_tweak_add_serialize33_impl(ctx, pubkey, tweak32, out33);
 }
 
 #ifdef ENABLE_MODULE_ECDH

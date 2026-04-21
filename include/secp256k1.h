@@ -489,6 +489,52 @@ SECP256K1_API int secp256k1_ec_pubkey_serialize(
     unsigned int flags
 ) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_ARG_NONNULL(4);
 
+/** Compute (pubkey + tweak32*G) and serialize the resulting pubkey in compressed 33-byte form.
+ *
+ * This is equivalent to:
+ *   secp256k1_pubkey tmp = *pubkey;
+ *   secp256k1_ec_pubkey_tweak_add(ctx, &tmp, tweak32);
+ *   secp256k1_ec_pubkey_serialize(ctx, out33, &outlen, &tmp, SECP256K1_EC_COMPRESSED);
+ *
+ * but performs the operation in one pass and writes exactly 33 bytes to out33 on success.
+ *
+ * Returns: 1 on success, 0 on failure.
+ * Args:    ctx:    pointer to a context object (not NULL)
+ *          pubkey: pointer to an initialized pubkey (not NULL)
+ *          tweak32:pointer to 32-byte tweak (not NULL)
+ *          out33:  pointer to 33-byte output buffer (not NULL)
+ */
+SECP256K1_API int secp256k1_ec_pubkey_tweak_add_serialize33(
+    const secp256k1_context* ctx,
+    const secp256k1_pubkey* pubkey,
+    const unsigned char tweak32[32],
+    unsigned char out33[33]
+) SECP256K1_WARN_UNUSED_RESULT;
+
+
+
+
+/* --- fastderive opaque parent cache ------------------------------------ */
+
+/* Pick a size that is >= sizeof(secp256k1_gej) on your build.
+   128 is a safe first choice on 64-bit; we will static-assert in secp256k1.c. */
+
+#ifndef SECP256K1_FASTDERIVE_PARENT_SIZE
+#define SECP256K1_FASTDERIVE_PARENT_SIZE 128
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#define SECP256K1_ALIGN16 __attribute__((aligned(16)))
+#else
+#define SECP256K1_ALIGN16
+#endif
+
+typedef struct secp256k1_fastderive_parent {
+    unsigned char data[SECP256K1_FASTDERIVE_PARENT_SIZE] SECP256K1_ALIGN16;
+} secp256k1_fastderive_parent;
+
+#undef SECP256K1_ALIGN16
+
 /** Compare two public keys using lexicographic (of compressed serialization) order
  *
  *  Returns: <0 if the first public key is less than the second
@@ -921,6 +967,52 @@ SECP256K1_API int secp256k1_tagged_sha256(
     const unsigned char *msg,
     size_t msglen
 ) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_ARG_NONNULL(5);
+
+SECP256K1_API int secp256k1_fastderive_parent_init_pubkey(
+    const secp256k1_context* ctx,
+    secp256k1_fastderive_parent* out,
+    const secp256k1_pubkey* pubkey
+);
+
+SECP256K1_API int secp256k1_ec_pubkey_tweak_add_serialize33_from_parent(
+    const secp256k1_context* ctx,
+    const secp256k1_fastderive_parent* parent,
+    const unsigned char tweak32[32],
+    unsigned char out33[33]
+);
+
+SECP256K1_API int secp256k1_ec_pubkey_tweak_add_serialize33_from_parent_batch10(
+    const secp256k1_context* ctx,
+    const secp256k1_fastderive_parent* parent,
+    const unsigned char tweaks32[10][32],
+    unsigned char out33[10][33]
+);
+
+/** Variable-time version of secp256k1_ec_pubkey_create.
+ *  Uses a non-constant-time scalar multiplication (secp256k1_ecmult_gen_var).
+ *  Safe when seckey is an HMAC-derived BIP32 child key, NOT a user signing key.
+ *  Returns 1 on success, 0 on failure (invalid seckey).
+ */
+SECP256K1_API int secp256k1_ec_pubkey_create_var(
+    const secp256k1_context* ctx,
+    secp256k1_pubkey* pubkey,
+    const unsigned char* seckey
+) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_WARN_UNUSED_RESULT;
+
+/** Batch variable-time pubkey creation: computes n pubkeys and outputs each as 64 raw bytes (x||y).
+ *  Uses one shared batch field inversion across all n keys (much faster than n individual calls).
+ *  seckeys: pointer to n×32-byte private keys (laid out contiguously).
+ *  xy64s:   pointer to n×64-byte output buffer; each entry is the 64-byte uncompressed x||y
+ *           (no 0x04 prefix), suitable for ETH keccak256 address derivation.
+ *  NOT constant-time. Only safe for HMAC-derived BIP32 child keys, not signing keys.
+ *  Returns 1 on success, 0 if any seckey is invalid.
+ */
+SECP256K1_API int secp256k1_ec_pubkey_batch_create_var_xy64(
+    const secp256k1_context* ctx,
+    const unsigned char* seckeys,
+    unsigned char* xy64s,
+    int n
+) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_WARN_UNUSED_RESULT;
 
 #ifdef __cplusplus
 }

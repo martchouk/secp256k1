@@ -218,7 +218,7 @@ AC_ARG_WITH([ecmult-window], [AS_HELP_STRING([--with-ecmult-window=SIZE],
 )],
 [set_ecmult_window=$withval], [set_ecmult_window=15])
 
-AC_ARG_WITH([ecmult-gen-kb], [AS_HELP_STRING([--with-ecmult-gen-kb=2|22|86],
+AC_ARG_WITH([ecmult-gen-kb], [AS_HELP_STRING([--with-ecmult-gen-kb=2|22|32|86],
 [The size of the precomputed table for signing in multiples of 1024 bytes (on typical platforms).]
 [Larger values result in possibly better signing/keygeneration performance at the cost of a larger table.]
 [The default value is a reasonable setting for desktop machines (currently 86). [default=86]]
@@ -376,11 +376,14 @@ case $set_ecmult_gen_kb in
 22)
   SECP_CONFIG_DEFINES="$SECP_CONFIG_DEFINES -DCOMB_BLOCKS=11 -DCOMB_TEETH=6"
   ;;
+32)
+  SECP_CONFIG_DEFINES="$SECP_CONFIG_DEFINES -DCOMB_BLOCKS=4 -DCOMB_TEETH=8"
+  ;;
 86)
   SECP_CONFIG_DEFINES="$SECP_CONFIG_DEFINES -DCOMB_BLOCKS=43 -DCOMB_TEETH=6"
   ;;
 *)
-  AC_MSG_ERROR(['ecmult gen table size not 2, 22 or 86'])
+  AC_MSG_ERROR(['ecmult gen table size not 2, 22, 32 or 86'])
   ;;
 esac
 
